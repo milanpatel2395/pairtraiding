@@ -265,19 +265,49 @@ def rec_card(ticker: str, price: float, action: str, action_cls: str, reason: st
 def load_historical(ticker_x: str, ticker_y: str, num_obs: int) -> pd.DataFrame:
     """Fetch enough history and return exactly *num_obs* trading days."""
     period = "5y" if num_obs > 500 else "3y" if num_obs > 248 else "2y"
-    raw = yf.download(
-        [ticker_x, ticker_y],
-        period=period,
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
+
+    for attempt in range(1, 4):
+        raw = yf.download(
+            [ticker_x, ticker_y],
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+        if not raw.empty:
+            break
+        time.sleep(2)
+
     if raw.empty:
-        raise ValueError("yfinance returned empty data — check ticker symbols")
-    df = raw["Close"][[ticker_x, ticker_y]].copy()
+        raise ValueError(
+            f"yfinance returned no data for {ticker_x} & {ticker_y}. "
+            "Verify the ticker symbols are valid Yahoo Finance tickers "
+            "(e.g. HDFCBANK.NS, AAPL)."
+        )
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"]
+    else:
+        close = raw[["Close"]].copy()
+        close.columns = [ticker_x]
+
+    if ticker_x not in close.columns or ticker_y not in close.columns:
+        available = close.columns.tolist()
+        raise ValueError(
+            f"Expected columns {ticker_x} & {ticker_y} but got {available}. "
+            "Check that both ticker symbols are correct."
+        )
+
+    df = close[[ticker_x, ticker_y]].copy()
     df.columns = [ticker_x, ticker_y]
     df.index = pd.to_datetime(df.index)
     df = df.ffill().dropna()
+
+    if len(df) == 0:
+        raise ValueError(
+            f"No valid price data after cleaning for {ticker_x} & {ticker_y}."
+        )
+
     return df.tail(num_obs)
 
 
@@ -393,6 +423,9 @@ with st.sidebar:
 
     st.divider()
     run_analysis = st.button("Run Analysis", use_container_width=True, type="primary")
+    if st.button("Clear Cache & Retry", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
     st.divider()
     st.markdown(

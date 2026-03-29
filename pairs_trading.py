@@ -152,7 +152,10 @@ def fetch_live_data(
             close = raw["Close"][[ticker_x, ticker_y]]
             last = close.dropna().iloc[-1]
             ts = close.dropna().index[-1]
-            return float(last[ticker_x]), float(last[ticker_y]), pd.Timestamp(ts)
+            ts = pd.Timestamp(ts)
+            if ts.tzinfo is not None:
+                ts = ts.tz_localize(None)
+            return float(last[ticker_x]), float(last[ticker_y]), ts
 
         except Exception as exc:
             log.warning("Live fetch attempt %d failed: %s", attempt, exc)
@@ -234,6 +237,11 @@ def update_dataset(
     ts: pd.Timestamp,
 ) -> pd.DataFrame:
     """Append a new observation, avoiding duplicates."""
+    if ts.tzinfo is not None:
+        ts = ts.tz_localize(None)
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+
     new_row = pd.DataFrame(
         {ticker_x: [price_x], ticker_y: [price_y]},
         index=[ts],
